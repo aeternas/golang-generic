@@ -1,0 +1,10 @@
+FROM quay.io/keycloak/keycloak:23.0
+
+ENV KEYCLOAK_ADMIN=admin \
+    KEYCLOAK_ADMIN_PASSWORD=admin
+
+COPY keycloak/realm-export.json /opt/keycloak/data/import/realm-export.json
+
+RUN /opt/keycloak/bin/kc.sh build
+
+ENTRYPOINT ["/opt/keycloak/bin/kc.sh", "start-dev", "--import-realm"]
