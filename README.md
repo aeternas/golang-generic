@@ -16,6 +16,17 @@ This repository contains a minimal HTTP service written in Go. The service expos
    ```
 
 By default the server listens on port `8080`. Set the `PORT` environment variable to change the listen port, for example `PORT=9090 go run .`.
+## Getting started
+
+1. Ensure you have Go 1.21 or newer installed.
+2. Clone the repository and change into its directory.
+3. Run the service:
+
+```bash
+go run .
+```
+
+By default the server listens on port `8080`. Set the `PORT` environment variable to change the listen port, e.g. `PORT=9090 go run .`.
 
 ### Testing the endpoints
 
