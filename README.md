@@ -5,6 +5,17 @@ This repository contains a minimal HTTP service written in Go. The service expos
 - `GET /` – returns a short JSON payload describing the service status.
 - `GET /healthz` – returns `204 No Content`, which is useful for health checks.
 
+## Running locally
+
+1. Ensure you have Go 1.21 or newer installed.
+2. Clone the repository and change into its directory.
+3. Start the service:
+
+   ```bash
+   go run .
+   ```
+
+By default the server listens on port `8080`. Set the `PORT` environment variable to change the listen port, for example `PORT=9090 go run .`.
 ## Getting started
 
 1. Ensure you have Go 1.21 or newer installed.
@@ -29,44 +40,26 @@ curl -i http://localhost:8080/healthz
 # HTTP/1.1 204 No Content
 ```
 
-## Deployment
+## Containerization with Docker
 
-The development environment for this exercise does not provide a publicly accessible network endpoint, so the service cannot be hosted for external access from a web browser. However, the project is ready to be deployed anywhere Go applications can run (for example Fly.io, Render, Railway, or a small VM). Deploying it typically involves building the binary with `go build .` and running it on a server that exposes the chosen port to the internet.
+A multi-stage Dockerfile is included so you can build a compact container image for the service.
 
-### Automated deployment with GitHub Actions (Fly.io)
-
-This repository includes a GitHub Actions workflow (`.github/workflows/deploy.yml`) and a Fly.io application definition (`fly.toml`) so you can automatically deploy the service to Fly.io from your own GitHub account.
-
-1. [Create a Fly.io account](https://fly.io) and install the `flyctl` CLI locally.
-2. Create a new Fly.io application for the service:
-
-   ```bash
-   flyctl apps create <your-app-name>
-   ```
-
-3. Update `fly.toml` and replace the placeholder `app` value (`golang-generic-placeholder`) with `<your-app-name>`.
-4. Generate a Fly.io access token and add it to your repository secrets as `FLY_API_TOKEN`:
-
-   ```bash
-   flyctl auth token
-   ```
-
-5. Add your Fly.io application name as the `FLY_APP_NAME` repository secret.
-6. Commit and push the changes (including the updated `fly.toml`) to GitHub.
-
-Every push to the `main` branch (or a manual “Run workflow” dispatch) will now:
-
-- check out the repository,
-- run `go test ./...`, and
-- deploy the latest version of the service to Fly.io using the Docker image defined in `Dockerfile`.
-
-If you prefer to deploy manually, you can run the same `flyctl deploy` command locally after logging in with `flyctl auth login`.
-
-### Container image
-
-The included `Dockerfile` builds a minimal Linux container image for the service. To build and run it locally:
+### Build the image
 
 ```bash
 docker build -t golang-generic .
+```
+
+### Run the container locally
+
+```bash
 docker run --rm -p 8080:8080 golang-generic
 ```
+
+The container exposes port `8080`. Override the port by passing the `PORT` environment variable when you start the container, for example:
+
+```bash
+docker run --rm -e PORT=9090 -p 9090:9090 golang-generic
+```
+
+This environment cannot host public services, but the resulting image can be deployed to any container platform or your own infrastructure.
