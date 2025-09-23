@@ -17,6 +17,7 @@ Both services are written in Go and are ready to be built into separate containe
 | `GET /healthz` | Returns `204 No Content` for health checking. |
 | `GET /s2/secure-data` | Invokes the secure endpoint on S2 using the configured Basic Auth credentials and returns the upstream response alongside S1 metadata. |
 | `GET /keycloak-greeting` | Requires a Keycloak Bearer token and returns a greeting payload containing token details. |
+| `POST /keycloak-register` | Creates a Keycloak user with a temporary password using the configured admin credentials. |
 
 #### Configuration
 
@@ -34,6 +35,10 @@ Service1 is configured through environment variables:
 | `KEYCLOAK_CLIENT_ID` | _(required for `/keycloak-greeting`)_ | Client ID that must appear in the token audience claim. |
 | `KEYCLOAK_JWKS_URL` | `${KEYCLOAK_ISSUER_URL}/protocol/openid-connect/certs` | Optional override for the JWKS endpoint. |
 | `KEYCLOAK_ISSUER_ALIASES` | _(optional)_ | Comma-separated list of additional issuer URLs accepted during token validation. |
+| `KEYCLOAK_ADMIN_USERNAME` | _(optional, required for `/keycloak-register`)_ | Username used to obtain a Keycloak admin token. |
+| `KEYCLOAK_ADMIN_PASSWORD` | _(optional, required for `/keycloak-register`)_ | Password for the Keycloak admin user. |
+| `KEYCLOAK_ADMIN_CLIENT_ID` | `admin-cli` | Client ID used when requesting the admin token. |
+| `KEYCLOAK_REGISTRATION_ROLE` | _(optional, required for `/keycloak-register`)_ | Realm role automatically assigned to newly registered users. |
 
 Run S1 locally:
 
@@ -52,6 +57,31 @@ For example, after obtaining an access token (see the [Keycloak realm container]
 ```bash
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8082/keycloak-greeting
 ```
+
+### Self-registration endpoint
+
+Providing the Keycloak admin environment variables enables `POST /keycloak-register`. The handler acquires an admin access token, creates the requested user, assigns the configured realm role and sets a randomly generated temporary password that must be changed on first login.
+
+Send a JSON payload containing the desired username (and optional email address):
+
+```bash
+curl -X POST http://localhost:8082/keycloak-register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"new-user","email":"user@example.com"}'
+```
+
+The response includes the assigned username and the temporary password:
+
+```json
+{
+  "service": "service1",
+  "message": "user registered successfully",
+  "username": "new-user",
+  "temporary_password": "RANDOM-PASSWORD"
+}
+```
+
+If the username already exists the endpoint responds with `409 Conflict`.
 
 ### Service2 (S2)
 
@@ -137,6 +167,7 @@ The repository now includes `Dockerfile.keycloak`, which produces a ready-to-run
 - Client ID: `service-client` (public client with password grant enabled)
 - Demo user: `kc-user` / `kc-pass`
 - Admin console: `admin` / `admin`
+- Self-registration role: `self-service-user`
 
 Build and run the image locally:
 
@@ -161,6 +192,9 @@ Export the Keycloak variables before starting S1 or S2 so they validate the issu
 ```bash
 export KEYCLOAK_ISSUER_URL=http://localhost:8080/realms/demo
 export KEYCLOAK_CLIENT_ID=service-client
+export KEYCLOAK_ADMIN_USERNAME=admin
+export KEYCLOAK_ADMIN_PASSWORD=admin
+export KEYCLOAK_REGISTRATION_ROLE=self-service-user
 ```
 
 The JWKS endpoint is automatically derived from the issuer but can be overridden via `KEYCLOAK_JWKS_URL` if required.

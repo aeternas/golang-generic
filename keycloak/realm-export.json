@@ -37,6 +37,13 @@
         "composite": false,
         "clientRole": false,
         "containerId": "demo"
+      },
+      {
+        "name": "self-service-user",
+        "description": "Role granted to self-registered users",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "demo"
       }
     ],
     "client": {
