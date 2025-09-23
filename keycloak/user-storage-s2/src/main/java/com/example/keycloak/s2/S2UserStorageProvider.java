@@ -14,11 +14,9 @@ import org.jboss.logging.Logger;
 import org.keycloak.component.ComponentModel;
 import org.keycloak.credential.CredentialInput;
 import org.keycloak.credential.CredentialInputValidator;
-import org.keycloak.credential.PasswordCredentialModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
-import org.keycloak.models.credential.UserCredentialModel;
 import org.keycloak.storage.StorageId;
 import org.keycloak.storage.UserStorageProvider;
 import org.keycloak.storage.user.UserLookupProvider;
@@ -29,6 +27,7 @@ import org.keycloak.storage.user.UserLookupProvider;
 public class S2UserStorageProvider implements UserStorageProvider, UserLookupProvider, CredentialInputValidator {
 
     private static final Logger LOGGER = Logger.getLogger(S2UserStorageProvider.class);
+    private static final String PASSWORD_CREDENTIAL_TYPE = "password";
 
     private final KeycloakSession session;
     private final ComponentModel model;
@@ -84,7 +83,7 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
 
     @Override
     public boolean supportsCredentialType(String credentialType) {
-        return Objects.equals(credentialType, PasswordCredentialModel.TYPE);
+        return Objects.equals(credentialType, PASSWORD_CREDENTIAL_TYPE);
     }
 
     @Override
@@ -97,12 +96,8 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
         if (!supportsCredentialType(credentialInput.getType())) {
             return false;
         }
-        if (!(credentialInput instanceof UserCredentialModel userCredential)) {
-            return false;
-        }
-
         String username = user.getUsername();
-        String password = userCredential.getChallengeResponse();
+        String password = credentialInput.getChallengeResponse();
         if (password == null) {
             return false;
         }

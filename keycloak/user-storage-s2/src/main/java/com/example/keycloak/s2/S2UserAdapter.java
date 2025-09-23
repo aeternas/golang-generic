@@ -18,17 +18,23 @@ import org.keycloak.storage.adapter.AbstractUserAdapter;
  */
 class S2UserAdapter extends AbstractUserAdapter.Streams {
 
+    private final String id;
     private final String username;
     private final Map<String, List<String>> attributes = new HashMap<>();
 
     S2UserAdapter(KeycloakSession session, RealmModel realm, ComponentModel model, String username) {
         super(session, realm, model);
         this.username = username;
-        setModelId(StorageId.keycloakId(model, username));
+        this.id = StorageId.keycloakId(model, username);
         attributes.put(UserModel.USERNAME, Collections.singletonList(username));
         attributes.put(UserModel.EMAIL, Collections.singletonList(username + "@service2.local"));
         attributes.put(UserModel.FIRST_NAME, Collections.singletonList("Service2"));
         attributes.put(UserModel.LAST_NAME, Collections.singletonList("User"));
+    }
+
+    @Override
+    public String getId() {
+        return id;
     }
 
     @Override
