@@ -54,12 +54,19 @@ type config struct {
 	KeycloakClientID      string
 	KeycloakJWKSURL       string
 	KeycloakIssuerAliases []string
+	KeycloakBaseURL       string
+	KeycloakRealm         string
+	KeycloakAdminUser     string
+	KeycloakAdminPassword string
+	KeycloakAdminClientID string
+	KeycloakRegisterRole  string
 }
 
 type server struct {
-	logger           *log.Logger
-	s2Client         *s2Client
-	keycloakVerifier *keycloak.Verifier
+	logger            *log.Logger
+	s2Client          *s2Client
+	keycloakVerifier  *keycloak.Verifier
+	keycloakRegistrar keycloak.UserRegistrar
 }
 
 func main() {
@@ -95,17 +102,41 @@ func main() {
 		logger.Printf("Keycloak configuration not set; /keycloak-greeting endpoint will be disabled")
 	}
 
+	var keycloakRegistrar keycloak.UserRegistrar
+	if cfg.KeycloakBaseURL != "" && cfg.KeycloakRealm != "" && cfg.KeycloakAdminUser != "" && cfg.KeycloakAdminPassword != "" && cfg.KeycloakRegisterRole != "" {
+		adminClient, err := keycloak.NewAdminClient(keycloak.AdminConfig{
+			BaseURL:          cfg.KeycloakBaseURL,
+			Realm:            cfg.KeycloakRealm,
+			Username:         cfg.KeycloakAdminUser,
+			Password:         cfg.KeycloakAdminPassword,
+			ClientID:         cfg.KeycloakAdminClientID,
+			RegistrationRole: cfg.KeycloakRegisterRole,
+		})
+		if err != nil {
+			logger.Printf("unable to configure Keycloak admin client: %v", err)
+		} else {
+			keycloakRegistrar = adminClient
+			logger.Printf("Keycloak self-registration enabled for realm %s with role %s", cfg.KeycloakRealm, cfg.KeycloakRegisterRole)
+		}
+	} else if cfg.KeycloakAdminUser != "" || cfg.KeycloakAdminPassword != "" || cfg.KeycloakRegisterRole != "" {
+		logger.Printf("Keycloak admin configuration incomplete; /keycloak-register endpoint will be disabled")
+	} else {
+		logger.Printf("Keycloak admin credentials not set; /keycloak-register endpoint will be disabled")
+	}
+
 	mux := http.NewServeMux()
 	srv := &server{
-		logger:           logger,
-		s2Client:         client,
-		keycloakVerifier: keycloakVerifier,
+		logger:            logger,
+		s2Client:          client,
+		keycloakVerifier:  keycloakVerifier,
+		keycloakRegistrar: keycloakRegistrar,
 	}
 
 	mux.HandleFunc("/", srv.handleIndex)
 	mux.HandleFunc("/healthz", srv.handleHealthz)
 	mux.HandleFunc("/s2/secure-data", srv.handleS2SecureData)
 	mux.HandleFunc("/keycloak-greeting", srv.handleKeycloakGreeting)
+	mux.HandleFunc("/keycloak-register", srv.handleKeycloakRegister)
 
 	port := cfg.Port
 	if port == "" {
@@ -133,6 +164,17 @@ func loadConfig() config {
 		jwksURL = strings.TrimSuffix(issuer, "/") + "/protocol/openid-connect/certs"
 	}
 
+	baseURL, realm, err := parseKeycloakIssuer(issuer)
+	if err != nil {
+		baseURL = ""
+		realm = ""
+	}
+
+	adminClientID := strings.TrimSpace(os.Getenv("KEYCLOAK_ADMIN_CLIENT_ID"))
+	if adminClientID == "" {
+		adminClientID = "admin-cli"
+	}
+
 	return config{
 		Port:                  strings.TrimSpace(os.Getenv("PORT")),
 		S2BaseURL:             strings.TrimSpace(os.Getenv("S2_BASE_URL")),
@@ -144,6 +186,12 @@ func loadConfig() config {
 		KeycloakClientID:      strings.TrimSpace(os.Getenv("KEYCLOAK_CLIENT_ID")),
 		KeycloakJWKSURL:       jwksURL,
 		KeycloakIssuerAliases: parseEnvList(os.Getenv("KEYCLOAK_ISSUER_ALIASES")),
+		KeycloakBaseURL:       baseURL,
+		KeycloakRealm:         realm,
+		KeycloakAdminUser:     strings.TrimSpace(os.Getenv("KEYCLOAK_ADMIN_USERNAME")),
+		KeycloakAdminPassword: os.Getenv("KEYCLOAK_ADMIN_PASSWORD"),
+		KeycloakAdminClientID: adminClientID,
+		KeycloakRegisterRole:  strings.TrimSpace(os.Getenv("KEYCLOAK_REGISTRATION_ROLE")),
 	}
 }
 
@@ -165,6 +213,45 @@ func parseEnvList(raw string) []string {
 		return nil
 	}
 	return values
+}
+
+func parseKeycloakIssuer(raw string) (string, string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", nil
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid Keycloak issuer URL: %w", err)
+	}
+
+	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	for i := 0; i < len(segments)-1; i++ {
+		if segments[i] != "realms" {
+			continue
+		}
+		realm := segments[i+1]
+		if realm == "" {
+			break
+		}
+
+		prefix := strings.Join(segments[:i], "/")
+		if prefix != "" {
+			parsed.Path = "/" + prefix
+		} else {
+			parsed.Path = ""
+		}
+		parsed.RawQuery = ""
+		parsed.Fragment = ""
+		base := strings.TrimRight(parsed.String(), "/")
+		if base == "" {
+			return "", "", errors.New("issuer URL missing scheme or host")
+		}
+		return base, realm, nil
+	}
+
+	return "", "", errors.New("issuer URL must contain /realms/{realm}")
 }
 
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
