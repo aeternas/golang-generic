@@ -7,4 +7,4 @@ COPY keycloak/realm-export.json /opt/keycloak/data/import/realm-export.json
 
 RUN /opt/keycloak/bin/kc.sh build
 
-ENTRYPOINT ["/opt/keycloak/bin/kc.sh", "start-dev", "--import-realm"]
+ENTRYPOINT ["/opt/keycloak/bin/kc.sh", "--verbose", "start-dev", "--import-realm"]

@@ -2,10 +2,6 @@
   "realm": "demo",
   "enabled": true,
   "displayName": "Demo Realm",
-  "defaultRoles": [
-    "offline_access",
-    "uma_authorization"
-  ],
   "roles": {
     "realm": [
       {
@@ -45,24 +41,6 @@
     ],
     "client": {
       "account": [
-        {
-          "name": "manage-account",
-          "clientRole": true,
-          "composite": false,
-          "containerId": "account"
-        },
-        {
-          "name": "manage-account-links",
-          "clientRole": true,
-          "composite": false,
-          "containerId": "account"
-        },
-        {
-          "name": "view-profile",
-          "clientRole": true,
-          "composite": false,
-          "containerId": "account"
-        }
       ]
     }
   },
@@ -114,6 +92,15 @@
     }
   ],
   "clientScopes": [
+	  {
+  "name": "offline_access",
+  "protocol": "openid-connect",
+  "attributes": {
+    "include.in.token.scope": "true",
+    "display.on.consent.screen": "true",
+    "consent.screen.text": "Offline access"
+  }
+},
     {
       "name": "profile",
       "protocol": "openid-connect",
