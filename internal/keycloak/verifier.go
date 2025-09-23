@@ -42,6 +42,7 @@ type Claims struct {
 	Issuer            string   `json:"iss"`
 	Subject           string   `json:"sub"`
 	Audience          Audience `json:"aud"`
+	AuthorizedParty   string   `json:"azp"`
 	Expiry            int64    `json:"exp"`
 	IssuedAt          int64    `json:"iat"`
 	PreferredUsername string   `json:"preferred_username"`
@@ -148,8 +149,8 @@ func (v *Verifier) VerifyToken(ctx context.Context, token string) (*Claims, erro
 		return nil, errors.New("token has expired")
 	}
 
-	if !claims.Audience.Contains(v.clientID) {
-		return nil, fmt.Errorf("token audience does not contain %s", v.clientID)
+	if !claims.Audience.Contains(v.clientID) && claims.AuthorizedParty != v.clientID {
+		return nil, fmt.Errorf("token is not intended for client %s", v.clientID)
 	}
 
 	if claims.Issuer != v.issuer {
