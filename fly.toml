@@ -10,12 +10,12 @@ kill_timeout = 5
   dockerfile = "Dockerfile"
 
 [env]
-  PORT = "8080"
+  PORT = "8082"
 
 [[services]]
   processes = ["app"]
   protocol = "tcp"
-  internal_port = 8080
+  internal_port = 8082
 
   [services.concurrency]
     type = "connections"

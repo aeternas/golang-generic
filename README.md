@@ -24,7 +24,7 @@ Service1 is configured through environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PORT` | `8080` | Listen port. |
+| `PORT` | `8082` | Listen port. |
 | `S2_BASE_URL` | _(required for `/s2/secure-data`)_ | Base URL of service2, e.g. `http://localhost:8081`. |
 | `S2_BASIC_USER` | _(required)_ | Username for S2's Basic Auth endpoint. |
 | `S2_BASIC_PASSWORD` | _(required)_ | Password for S2's Basic Auth endpoint. |
@@ -49,7 +49,7 @@ valid token receive `401 Unauthorized`.
 For example, after obtaining an access token (see the [Keycloak realm container](#keycloak-realm-container) section below):
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/keycloak-greeting
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8082/keycloak-greeting
 ```
 
 ### Service2 (S2)
@@ -120,7 +120,7 @@ go run ./cmd/service1
 go run ./cmd/service2
 
 # Request proxied data
-curl http://localhost:8080/s2/secure-data
+curl http://localhost:8082/s2/secure-data
 ```
 
 S1 responds with a JSON document that includes the original payload returned by S2.
@@ -193,7 +193,7 @@ docker run --rm \
 
 # In another terminal configure S1 to reach S2 and Keycloak through Docker's network bridge
 docker run --rm \
-  -e PORT=8080 \
+  -e PORT=8082 \
   -e S2_BASE_URL=http://service2:8081 \
   -e S2_BASIC_USER=demo-user \
   -e S2_BASIC_PASSWORD=demo-pass \
@@ -201,7 +201,7 @@ docker run --rm \
   -e KEYCLOAK_CLIENT_ID=service-client \
   --link service2:service2 \
   --link keycloak:keycloak \
-  -p 8080:8080 service1
+  -p 8082:8082 service1
 ```
 
 > **Note:** This environment cannot host long-running services, but the images produced by the Dockerfiles are ready for deployment to your own infrastructure.
