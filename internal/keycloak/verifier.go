@@ -12,6 +12,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,10 @@ type Config struct {
 	IssuerURL string
 	ClientID  string
 	JWKSURL   string
+	// IssuerAliases allows additional issuer URLs that should be accepted when validating tokens.
+	// This is useful when the public issuer differs from the URL used to fetch JWKS keys
+	// (for example, when accessing Keycloak via an internal hostname).
+	IssuerAliases []string
 	// HTTPClient allows overriding the HTTP client used to retrieve JWKS keys.
 	// When nil, a client with a 5 second timeout is used.
 	HTTPClient *http.Client
@@ -29,10 +34,12 @@ type Config struct {
 
 // Verifier validates RSA-signed Keycloak JWTs by fetching the realm's JWKS document.
 type Verifier struct {
-	issuer     string
-	clientID   string
-	jwksURL    string
-	httpClient *http.Client
+	issuer      string
+	clientID    string
+	jwksURL     string
+	httpClient  *http.Client
+	validIssuer map[string]struct{}
+	issuerList  []string
 
 	mu   sync.RWMutex
 	keys map[string]*rsa.PublicKey
@@ -69,9 +76,31 @@ func NewVerifier(ctx context.Context, cfg Config) (*Verifier, error) {
 		return nil, errors.New("issuer URL and client ID must be provided")
 	}
 
+	issuer := normaliseIssuer(cfg.IssuerURL)
+
 	jwksURL := strings.TrimSpace(cfg.JWKSURL)
 	if jwksURL == "" {
-		jwksURL = strings.TrimSuffix(cfg.IssuerURL, "/") + "/protocol/openid-connect/certs"
+		jwksURL = issuer + "/protocol/openid-connect/certs"
+	}
+
+	issuerSet := make(map[string]struct{})
+	issuerList := make([]string, 0, len(cfg.IssuerAliases)+1)
+
+	if issuer != "" {
+		issuerSet[issuer] = struct{}{}
+		issuerList = append(issuerList, issuer)
+	}
+
+	for _, alias := range cfg.IssuerAliases {
+		trimmed := normaliseIssuer(alias)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := issuerSet[trimmed]; exists {
+			continue
+		}
+		issuerSet[trimmed] = struct{}{}
+		issuerList = append(issuerList, trimmed)
 	}
 
 	httpClient := cfg.HTTPClient
@@ -80,11 +109,13 @@ func NewVerifier(ctx context.Context, cfg Config) (*Verifier, error) {
 	}
 
 	verifier := &Verifier{
-		issuer:     strings.TrimSpace(cfg.IssuerURL),
-		clientID:   strings.TrimSpace(cfg.ClientID),
-		jwksURL:    jwksURL,
-		httpClient: httpClient,
-		keys:       make(map[string]*rsa.PublicKey),
+		issuer:      issuer,
+		clientID:    strings.TrimSpace(cfg.ClientID),
+		jwksURL:     jwksURL,
+		httpClient:  httpClient,
+		keys:        make(map[string]*rsa.PublicKey),
+		validIssuer: issuerSet,
+		issuerList:  issuerList,
 	}
 
 	if err := verifier.refreshKeys(ctx); err != nil {
@@ -172,13 +203,27 @@ func (v *Verifier) VerifyToken(ctx context.Context, token string) (*Claims, erro
 		return nil, fmt.Errorf("token is not intended for client %s", v.clientID)
 	}
 
-	if claims.Issuer != v.issuer {
-		debugf("token issuer %q does not match expected issuer %q", claims.Issuer, v.issuer)
+	if !v.isValidIssuer(claims.Issuer) {
+		debugf("token issuer %q does not match any expected issuer %v", claims.Issuer, v.issuerList)
 		return nil, fmt.Errorf("unexpected issuer %s", claims.Issuer)
 	}
 
 	debugf("token verified successfully for subject %q (issuer %q)", claims.Subject, claims.Issuer)
 	return &claims, nil
+}
+
+func (v *Verifier) isValidIssuer(issuer string) bool {
+	if len(v.validIssuer) == 0 {
+		return false
+	}
+
+	normalised := normaliseIssuer(issuer)
+	if normalised == "" {
+		return false
+	}
+
+	_, ok := v.validIssuer[normalised]
+	return ok
 }
 
 func (v *Verifier) lookupKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
@@ -324,4 +369,21 @@ func (a Audience) Contains(target string) bool {
 
 func debugf(format string, args ...any) {
 	log.Printf("[keycloak] "+format, args...)
+}
+
+func normaliseIssuer(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return strings.TrimRight(trimmed, "/")
+	}
+
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	parsed.RawPath = strings.TrimRight(parsed.RawPath, "/")
+
+	return parsed.String()
 }

@@ -33,6 +33,7 @@ Service1 is configured through environment variables:
 | `KEYCLOAK_ISSUER_URL` | _(required for `/keycloak-greeting`)_ | Issuer URL for the Keycloak realm, e.g. `http://localhost:8080/realms/demo`. |
 | `KEYCLOAK_CLIENT_ID` | _(required for `/keycloak-greeting`)_ | Client ID that must appear in the token audience claim. |
 | `KEYCLOAK_JWKS_URL` | `${KEYCLOAK_ISSUER_URL}/protocol/openid-connect/certs` | Optional override for the JWKS endpoint. |
+| `KEYCLOAK_ISSUER_ALIASES` | _(optional)_ | Comma-separated list of additional issuer URLs accepted during token validation. |
 
 Run S1 locally:
 
@@ -77,6 +78,7 @@ S2 validates RSA-signed JWTs issued by Keycloak. Provide the following environme
 | `KEYCLOAK_ISSUER_URL` | _(required)_ | Issuer URL for your Keycloak realm, e.g. `http://localhost:8080/realms/demo`. |
 | `KEYCLOAK_CLIENT_ID` | _(required)_ | Client ID configured in that realm. The token's audience must include this value. |
 | `KEYCLOAK_JWKS_URL` | `${KEYCLOAK_ISSUER_URL}/protocol/openid-connect/certs` | Optional override for the JWKS endpoint that exposes the signing keys. |
+| `KEYCLOAK_ISSUER_ALIASES` | _(optional)_ | Comma-separated list of additional issuer URLs accepted during token validation. |
 
 At startup the service downloads the JWKS set once and caches the RSA keys. Tokens are validated by checking:
 
@@ -88,6 +90,8 @@ At startup the service downloads the JWKS set once and caches the RSA keys. Toke
 The handler returns a JSON payload containing basic details such as the subject, audience, issuer, preferred username and token lifetime.
 
 > When using the bundled Keycloak container, set `KEYCLOAK_ISSUER_URL=http://localhost:8080/realms/demo` and `KEYCLOAK_CLIENT_ID=service-client`.
+
+If the URL used to obtain tokens differs from the one the services use to reach Keycloak (for example `http://localhost:8080/realms/demo` for token requests versus `http://keycloak:8080/realms/demo` inside a Docker network), supply the public value via `KEYCLOAK_ISSUER_ALIASES` so both issuers are trusted during validation.
 
 Run S2 locally:
 
@@ -186,6 +190,7 @@ docker run --rm -p 8080:8080 --name keycloak demo-keycloak
 docker run --rm \
   -e PORT=8081 \
   -e KEYCLOAK_ISSUER_URL=http://keycloak:8080/realms/demo \
+  -e KEYCLOAK_ISSUER_ALIASES=http://localhost:8080/realms/demo \
   -e KEYCLOAK_CLIENT_ID=service-client \
   -p 8081:8081 \
   --link keycloak:keycloak \
@@ -198,6 +203,7 @@ docker run --rm \
   -e S2_BASIC_USER=demo-user \
   -e S2_BASIC_PASSWORD=demo-pass \
   -e KEYCLOAK_ISSUER_URL=http://keycloak:8080/realms/demo \
+  -e KEYCLOAK_ISSUER_ALIASES=http://localhost:8080/realms/demo \
   -e KEYCLOAK_CLIENT_ID=service-client \
   --link service2:service2 \
   --link keycloak:keycloak \
