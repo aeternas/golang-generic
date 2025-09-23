@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"net/http"
 	"strings"
@@ -87,31 +88,40 @@ func NewVerifier(ctx context.Context, cfg Config) (*Verifier, error) {
 	}
 
 	if err := verifier.refreshKeys(ctx); err != nil {
+		debugf("initial JWKS refresh failed: %v", err)
 		return nil, err
 	}
 
+	debugf("verifier initialised for issuer %s with JWKS endpoint %s", verifier.issuer, verifier.jwksURL)
 	return verifier, nil
 }
 
 // VerifyToken validates the supplied JWT and returns its claims if the token is valid.
 func (v *Verifier) VerifyToken(ctx context.Context, token string) (*Claims, error) {
+	debugf("verifying token with length %d", len(token))
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
+		debugf("token split into %d parts, expected 3", len(parts))
 		return nil, errors.New("token must contain header, payload and signature")
 	}
 
 	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
+		debugf("unable to decode token header: %v", err)
 		return nil, fmt.Errorf("unable to decode token header: %w", err)
 	}
+	debugf("token header JSON: %s", string(headerBytes))
 
 	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
+		debugf("unable to decode token payload: %v", err)
 		return nil, fmt.Errorf("unable to decode token payload: %w", err)
 	}
+	debugf("token payload JSON: %s", string(payloadBytes))
 
 	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
+		debugf("unable to decode token signature: %v", err)
 		return nil, fmt.Errorf("unable to decode token signature: %w", err)
 	}
 
@@ -121,42 +131,53 @@ func (v *Verifier) VerifyToken(ctx context.Context, token string) (*Claims, erro
 		Type      string `json:"typ"`
 	}
 	if err := json.Unmarshal(headerBytes, &header); err != nil {
+		debugf("unable to parse token header JSON: %v", err)
 		return nil, fmt.Errorf("unable to parse token header: %w", err)
 	}
 
 	if header.Algorithm != "RS256" {
+		debugf("unsupported signing algorithm %q", header.Algorithm)
 		return nil, fmt.Errorf("unsupported signing algorithm %q", header.Algorithm)
 	}
 
+	debugf("resolving signing key for kid %q", header.KeyID)
 	key, err := v.lookupKey(ctx, header.KeyID)
 	if err != nil {
+		debugf("failed to resolve signing key for kid %q: %v", header.KeyID, err)
 		return nil, err
 	}
+	debugf("signing key for kid %q resolved successfully", header.KeyID)
 
 	signedContent := parts[0] + "." + parts[1]
 	hashed := sha256.Sum256([]byte(signedContent))
 	if err := rsa.VerifyPKCS1v15(key, crypto.SHA256, hashed[:], signature); err != nil {
+		debugf("invalid token signature: %v", err)
 		return nil, fmt.Errorf("invalid token signature: %w", err)
 	}
 
 	var claims Claims
 	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		debugf("unable to parse token claims: %v", err)
 		return nil, fmt.Errorf("unable to parse token claims: %w", err)
 	}
 
 	now := time.Now().UTC()
 	if time.Unix(claims.Expiry, 0).Before(now) {
+		debugf("token expired at %s (current time %s)", time.Unix(claims.Expiry, 0).UTC(), now)
 		return nil, errors.New("token has expired")
 	}
 
 	if !claims.Audience.Contains(v.clientID) && claims.AuthorizedParty != v.clientID {
+		debugf("token audience %v / azp %q does not match client id %q", []string(claims.Audience), claims.AuthorizedParty, v.clientID)
 		return nil, fmt.Errorf("token is not intended for client %s", v.clientID)
 	}
 
 	if claims.Issuer != v.issuer {
+		debugf("token issuer %q does not match expected issuer %q", claims.Issuer, v.issuer)
 		return nil, fmt.Errorf("unexpected issuer %s", claims.Issuer)
 	}
 
+	debugf("token verified successfully for subject %q (issuer %q)", claims.Subject, claims.Issuer)
 	return &claims, nil
 }
 
@@ -166,10 +187,13 @@ func (v *Verifier) lookupKey(ctx context.Context, kid string) (*rsa.PublicKey, e
 	v.mu.RUnlock()
 
 	if key != nil {
+		debugf("cache hit for signing key %q", kid)
 		return key, nil
 	}
 
+	debugf("cache miss for signing key %q, refreshing keys", kid)
 	if err := v.refreshKeys(ctx); err != nil {
+		debugf("failed to refresh keys while resolving %q: %v", kid, err)
 		return nil, err
 	}
 
@@ -177,45 +201,56 @@ func (v *Verifier) lookupKey(ctx context.Context, kid string) (*rsa.PublicKey, e
 	defer v.mu.RUnlock()
 	key = v.keys[kid]
 	if key == nil {
+		debugf("no signing key found for kid %q after refresh", kid)
 		return nil, fmt.Errorf("no signing key found for kid %s", kid)
 	}
+	debugf("signing key %q loaded after refresh", kid)
 	return key, nil
 }
 
 func (v *Verifier) refreshKeys(ctx context.Context) error {
+	debugf("requesting JWKS from %s", v.jwksURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.jwksURL, nil)
 	if err != nil {
+		debugf("failed to build JWKS request: %v", err)
 		return fmt.Errorf("failed to build JWKS request: %w", err)
 	}
 
 	resp, err := v.httpClient.Do(req)
 	if err != nil {
+		debugf("failed to fetch JWKS: %v", err)
 		return fmt.Errorf("failed to fetch JWKS: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		debugf("jwks endpoint returned status %d", resp.StatusCode)
 		return fmt.Errorf("jwks endpoint returned status %d", resp.StatusCode)
 	}
 
 	var payload jwksResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		debugf("failed to decode JWKS response: %v", err)
 		return fmt.Errorf("failed to decode JWKS response: %w", err)
 	}
 
 	keys := make(map[string]*rsa.PublicKey, len(payload.Keys))
 	for _, key := range payload.Keys {
+		debugf("processing JWK with kid %q and kty %q", key.KeyID, key.KeyType)
 		if key.KeyType != "RSA" {
+			debugf("skipping non-RSA key %q", key.KeyID)
 			continue
 		}
 		pubKey, err := key.toPublicKey()
 		if err != nil {
+			debugf("failed to parse JWK %q: %v", key.KeyID, err)
 			return fmt.Errorf("failed to parse JWK %s: %w", key.KeyID, err)
 		}
 		keys[key.KeyID] = pubKey
 	}
 
 	if len(keys) == 0 {
+		debugf("no RSA keys available in JWKS response")
 		return errors.New("no RSA keys available in JWKS response")
 	}
 
@@ -223,6 +258,7 @@ func (v *Verifier) refreshKeys(ctx context.Context) error {
 	v.keys = keys
 	v.mu.Unlock()
 
+	debugf("JWKS refresh complete with %d signing keys", len(keys))
 	return nil
 }
 
@@ -284,4 +320,8 @@ func (a Audience) Contains(target string) bool {
 		}
 	}
 	return false
+}
+
+func debugf(format string, args ...any) {
+	log.Printf("[keycloak] "+format, args...)
 }

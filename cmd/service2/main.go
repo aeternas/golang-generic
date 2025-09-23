@@ -158,19 +158,29 @@ func (s *service) handleKeycloakData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	authHeader := r.Header.Get("Authorization")
+	s.logger.Printf("received Authorization header: %q", authHeader)
 	if !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+		s.logger.Printf("authorization header missing bearer prefix")
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		http.Error(w, "bearer token required", http.StatusUnauthorized)
 		return
 	}
 
 	rawToken := strings.TrimSpace(authHeader[len("Bearer "):])
-	claims, err := s.tokenVerifier.VerifyToken(r.Context(), rawToken)
-	if err != nil {
+	if rawToken == "" {
+		s.logger.Printf("bearer token was empty after trimming header")
 		w.Header().Set("WWW-Authenticate", "Bearer error=\"invalid_token\"")
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
+	claims, err := s.tokenVerifier.VerifyToken(r.Context(), rawToken)
+	if err != nil {
+		s.logger.Printf("token verification failed: %v", err)
+		w.Header().Set("WWW-Authenticate", "Bearer error=\"invalid_token\"")
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+	s.logger.Printf("token validated successfully: subject=%q issuer=%q audience=%v expires=%d", claims.Subject, claims.Issuer, []string(claims.Audience), claims.Expiry)
 
 	issuedAt := ""
 	if claims.IssuedAt != 0 {

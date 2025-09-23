@@ -199,7 +199,9 @@ func (s *server) handleKeycloakGreeting(w http.ResponseWriter, r *http.Request) 
 	}
 
 	authHeader := r.Header.Get("Authorization")
+	s.logger.Printf("received Authorization header: %q", authHeader)
 	if !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+		s.logger.Printf("authorization header missing bearer prefix")
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		http.Error(w, "bearer token required", http.StatusUnauthorized)
 		return
@@ -207,6 +209,7 @@ func (s *server) handleKeycloakGreeting(w http.ResponseWriter, r *http.Request) 
 
 	token := strings.TrimSpace(authHeader[len("Bearer "):])
 	if token == "" {
+		s.logger.Printf("bearer token was empty after trimming header")
 		w.Header().Set("WWW-Authenticate", "Bearer error=\"invalid_token\"")
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
@@ -214,10 +217,12 @@ func (s *server) handleKeycloakGreeting(w http.ResponseWriter, r *http.Request) 
 
 	claims, err := s.keycloakVerifier.VerifyToken(r.Context(), token)
 	if err != nil {
+		s.logger.Printf("token verification failed: %v", err)
 		w.Header().Set("WWW-Authenticate", "Bearer error=\"invalid_token\"")
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
+	s.logger.Printf("token validated successfully: subject=%q issuer=%q audience=%v expires=%d", claims.Subject, claims.Issuer, []string(claims.Audience), claims.Expiry)
 
 	issuedAt := ""
 	if claims.IssuedAt != 0 {
