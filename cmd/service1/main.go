@@ -44,15 +44,16 @@ type keycloakGreetingResponse struct {
 }
 
 type config struct {
-	Port              string
-	S2BaseURL         string
-	S2User            string
-	S2Password        string
-	S2SecurePath      string
-	RequestTimeout    time.Duration
-	KeycloakIssuerURL string
-	KeycloakClientID  string
-	KeycloakJWKSURL   string
+	Port                  string
+	S2BaseURL             string
+	S2User                string
+	S2Password            string
+	S2SecurePath          string
+	RequestTimeout        time.Duration
+	KeycloakIssuerURL     string
+	KeycloakClientID      string
+	KeycloakJWKSURL       string
+	KeycloakIssuerAliases []string
 }
 
 type server struct {
@@ -80,9 +81,10 @@ func main() {
 	if cfg.KeycloakIssuerURL != "" && cfg.KeycloakClientID != "" {
 		var err error
 		keycloakVerifier, err = keycloak.NewVerifier(context.Background(), keycloak.Config{
-			IssuerURL: cfg.KeycloakIssuerURL,
-			ClientID:  cfg.KeycloakClientID,
-			JWKSURL:   cfg.KeycloakJWKSURL,
+			IssuerURL:     cfg.KeycloakIssuerURL,
+			ClientID:      cfg.KeycloakClientID,
+			JWKSURL:       cfg.KeycloakJWKSURL,
+			IssuerAliases: cfg.KeycloakIssuerAliases,
 		})
 		if err != nil {
 			logger.Printf("unable to configure Keycloak verifier: %v", err)
@@ -132,16 +134,37 @@ func loadConfig() config {
 	}
 
 	return config{
-		Port:              strings.TrimSpace(os.Getenv("PORT")),
-		S2BaseURL:         strings.TrimSpace(os.Getenv("S2_BASE_URL")),
-		S2User:            os.Getenv("S2_BASIC_USER"),
-		S2Password:        os.Getenv("S2_BASIC_PASSWORD"),
-		S2SecurePath:      strings.TrimSpace(os.Getenv("S2_SECURE_PATH")),
-		RequestTimeout:    timeout,
-		KeycloakIssuerURL: issuer,
-		KeycloakClientID:  strings.TrimSpace(os.Getenv("KEYCLOAK_CLIENT_ID")),
-		KeycloakJWKSURL:   jwksURL,
+		Port:                  strings.TrimSpace(os.Getenv("PORT")),
+		S2BaseURL:             strings.TrimSpace(os.Getenv("S2_BASE_URL")),
+		S2User:                os.Getenv("S2_BASIC_USER"),
+		S2Password:            os.Getenv("S2_BASIC_PASSWORD"),
+		S2SecurePath:          strings.TrimSpace(os.Getenv("S2_SECURE_PATH")),
+		RequestTimeout:        timeout,
+		KeycloakIssuerURL:     issuer,
+		KeycloakClientID:      strings.TrimSpace(os.Getenv("KEYCLOAK_CLIENT_ID")),
+		KeycloakJWKSURL:       jwksURL,
+		KeycloakIssuerAliases: parseEnvList(os.Getenv("KEYCLOAK_ISSUER_ALIASES")),
 	}
+}
+
+func parseEnvList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			values = append(values, trimmed)
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	return values
 }
 
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {

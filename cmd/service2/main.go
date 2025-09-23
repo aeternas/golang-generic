@@ -24,9 +24,10 @@ type service struct {
 }
 
 type keycloakConfig struct {
-	IssuerURL string
-	ClientID  string
-	JWKSURL   string
+	IssuerURL     string
+	ClientID      string
+	JWKSURL       string
+	IssuerAliases []string
 }
 
 type secureDataResponse struct {
@@ -85,10 +86,31 @@ func loadKeycloakConfig() keycloakConfig {
 	}
 
 	return keycloakConfig{
-		IssuerURL: issuer,
-		ClientID:  strings.TrimSpace(os.Getenv("KEYCLOAK_CLIENT_ID")),
-		JWKSURL:   jwksURL,
+		IssuerURL:     issuer,
+		ClientID:      strings.TrimSpace(os.Getenv("KEYCLOAK_CLIENT_ID")),
+		JWKSURL:       jwksURL,
+		IssuerAliases: parseEnvList(os.Getenv("KEYCLOAK_ISSUER_ALIASES")),
 	}
+}
+
+func parseEnvList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			values = append(values, trimmed)
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	return values
 }
 
 func buildKeycloakVerifier(ctx context.Context, cfg keycloakConfig) (*keycloak.Verifier, error) {
@@ -97,9 +119,10 @@ func buildKeycloakVerifier(ctx context.Context, cfg keycloakConfig) (*keycloak.V
 	}
 
 	verifier, err := keycloak.NewVerifier(ctx, keycloak.Config{
-		IssuerURL: cfg.IssuerURL,
-		ClientID:  cfg.ClientID,
-		JWKSURL:   cfg.JWKSURL,
+		IssuerURL:     cfg.IssuerURL,
+		ClientID:      cfg.ClientID,
+		JWKSURL:       cfg.JWKSURL,
+		IssuerAliases: cfg.IssuerAliases,
 	})
 	if err != nil {
 		return nil, err
