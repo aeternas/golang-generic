@@ -13,6 +13,6 @@ FROM gcr.io/distroless/base-debian12
 WORKDIR /app
 
 COPY --from=builder /src/service1 ./service1
-EXPOSE 8080
+EXPOSE 8082
 
 CMD ["./service1"]
