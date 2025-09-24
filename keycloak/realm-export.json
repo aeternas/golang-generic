@@ -97,8 +97,6 @@
         "id": "s2-user-storage-demo",
         "name": "Service2 Basic Auth",
         "providerId": "s2-user-storage",
-        "providerType": "org.keycloak.storage.UserStorageProvider",
-        "parentId": "demo",
         "subComponents": {},
         "config": {
           "s2BaseUrl": [
