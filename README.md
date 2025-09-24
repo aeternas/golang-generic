@@ -163,6 +163,33 @@ export KEYCLOAK_ISSUER_URL=http://localhost:8080/realms/demo
 export KEYCLOAK_CLIENT_ID=service-client
 ```
 
+### User Storage SPI example
+
+The Keycloak container image now bundles a custom **User Storage SPI** provider that delegates password checks to Service2's
+Basic Auth endpoint. The provider is packaged from the Maven project under `keycloak/user-storage-s2` and copied into Keycloak
+at build time.
+
+When the realm import runs, a new component named **Service2 Basic Auth** is created. The component accepts three configuration
+properties:
+
+| Property | Description | Default |
+| --- | --- | --- |
+| `s2BaseUrl` | Base URL used to contact Service2. | `http://service2:8081` |
+| `s2Endpoint` | Relative path of the Basic Auth protected endpoint. | `/secure-data` |
+| `s2TimeoutMillis` | Timeout (in milliseconds) for validation requests. | `2000` |
+
+To test the integration locally:
+
+1. Start Service2 so it is reachable by Keycloak. When running Keycloak via Docker, place both containers on the same network
+   and keep Service2 available as `http://service2:8081` or adjust the component configuration in the Keycloak admin console.
+2. Build and run the Keycloak image with `docker build -f Dockerfile.keycloak -t demo-keycloak .` followed by
+   `docker run --rm -p 8080:8080 --name keycloak demo-keycloak`.
+3. Authenticate against Keycloak with the Service2 Basic Auth credentials, e.g. obtain a token using
+   `demo-user` / `demo-pass` as the username and password.
+
+During authentication Keycloak issues a Basic Auth request to Service2's secure endpoint. A `200 OK` response marks the
+credentials as valid while other responses (or timeouts) reject the login attempt.
+
 The JWKS endpoint is automatically derived from the issuer but can be overridden via `KEYCLOAK_JWKS_URL` if required.
 
 ## Containerization
