@@ -79,12 +79,12 @@ public class S2UserStorageProviderFactory implements UserStorageProviderFactory<
     private static URI resolveEndpoint(String baseUrl, String endpoint) {
         String effectiveBase = baseUrl != null ? baseUrl.trim() : "";
         if (effectiveBase.isEmpty()) {
-            effectiveBase = BASE_URL.getDefaultValue();
+            effectiveBase = defaultValue(BASE_URL);
         }
 
         String effectiveEndpoint = endpoint != null ? endpoint.trim() : "";
         if (effectiveEndpoint.isEmpty()) {
-            effectiveEndpoint = ENDPOINT.getDefaultValue();
+            effectiveEndpoint = defaultValue(ENDPOINT);
         }
 
         String normalisedEndpoint = effectiveEndpoint.startsWith("/") ? effectiveEndpoint : "/" + effectiveEndpoint;
@@ -100,7 +100,7 @@ public class S2UserStorageProviderFactory implements UserStorageProviderFactory<
     private static Duration parseTimeout(String timeoutRaw) {
         String value = timeoutRaw != null ? timeoutRaw.trim() : "";
         if (value.isEmpty()) {
-            value = TIMEOUT.getDefaultValue();
+            value = defaultValue(TIMEOUT);
         }
 
         try {
@@ -112,5 +112,10 @@ public class S2UserStorageProviderFactory implements UserStorageProviderFactory<
         } catch (NumberFormatException ex) {
             throw new IllegalArgumentException("Timeout must be a number", ex);
         }
+    }
+
+    private static String defaultValue(ProviderConfigProperty property) {
+        Object value = property.getDefaultValue();
+        return value != null ? value.toString() : "";
     }
 }
