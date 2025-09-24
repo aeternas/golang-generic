@@ -165,6 +165,30 @@ export KEYCLOAK_CLIENT_ID=service-client
 
 The JWKS endpoint is automatically derived from the issuer but can be overridden via `KEYCLOAK_JWKS_URL` if required.
 
+## Keycloak Authentication SPI example
+
+This repository also includes a Keycloak Authentication SPI implementation that demonstrates how to add a custom step to the login flow. The authenticator prompts users for the HTTP Basic credentials that protect Service2's `/secure-data` endpoint and verifies them by making a real request to that service. Successful verification is treated as an additional factor during the Keycloak login sequence.
+
+### Building the authenticator
+
+The provider lives under [`keycloak/auth-spi`](keycloak/auth-spi) and can be built with Maven:
+
+```bash
+mvn -f keycloak/auth-spi/pom.xml package
+```
+
+The resulting JAR is placed in `keycloak/auth-spi/target`. The `Dockerfile.keycloak` multi-stage build automatically compiles the module and copies the artefact into `/opt/keycloak/providers/`, so any image built from that Dockerfile already contains the authenticator and its accompanying form template.
+
+### Enabling the flow in Keycloak
+
+1. Sign in to the Keycloak admin console and navigate to **Authentication → Flows**.
+2. Copy the built-in **Browser** flow so you can safely customise it (for example name it `browser-with-s2`).
+3. In the copy, add a new execution after **Username Password Form** using the **S2 Basic Auth challenge** provider.
+4. Mark the new execution as **Required** and configure it with the base URL of Service2 (e.g. `http://service2:8081`) and the relative path that should be called (`/secure-data` by default).
+5. Set your realm's Browser flow to use the customised flow.
+
+During login the user will now be prompted to enter the S2 credentials. A 2xx response from the configured endpoint is treated as success while non-2xx responses or network errors keep the user on the challenge screen.
+
 ## Containerization
 
 Each service has its own multi-stage Dockerfile and can be built separately:
