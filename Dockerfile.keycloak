@@ -1,9 +1,19 @@
+FROM maven:3.9.6-eclipse-temurin-17 AS spi-builder
+WORKDIR /workspace
+
+COPY keycloak/auth-spi/pom.xml keycloak/auth-spi/pom.xml
+RUN mvn -B -ntp -f keycloak/auth-spi/pom.xml dependency:go-offline
+
+COPY keycloak/auth-spi/src keycloak/auth-spi/src
+RUN mvn -B -ntp -f keycloak/auth-spi/pom.xml package
+
 FROM quay.io/keycloak/keycloak:23.0
 
 ENV KEYCLOAK_ADMIN=admin \
     KEYCLOAK_ADMIN_PASSWORD=admin
 
 COPY keycloak/realm-export.json /opt/keycloak/data/import/realm-export.json
+COPY --from=spi-builder /workspace/keycloak/auth-spi/target/s2-basic-authenticator-*.jar /opt/keycloak/providers/
 
 RUN /opt/keycloak/bin/kc.sh build
 
