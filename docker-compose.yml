@@ -2,6 +2,8 @@ version: "3.9"
 
 services:
   keycloak:
+    environment:
+      - KC_LOG_LEVEL=INFO,com.example.keycloak.s2:DEBUG
     build:
       context: .
       dockerfile: Dockerfile.keycloak
