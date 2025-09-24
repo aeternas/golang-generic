@@ -91,6 +91,29 @@
       ]
     }
   ],
+  "components": {
+    "org.keycloak.storage.UserStorageProvider": [
+      {
+        "id": "s2-user-storage-demo",
+        "name": "Service2 Basic Auth",
+        "providerId": "s2-user-storage",
+        "providerType": "org.keycloak.storage.UserStorageProvider",
+        "parentId": "demo",
+        "subComponents": {},
+        "config": {
+          "s2BaseUrl": [
+            "http://service2:8081"
+          ],
+          "s2Endpoint": [
+            "/secure-data"
+          ],
+          "s2TimeoutMillis": [
+            "2000"
+          ]
+        }
+      }
+    ]
+  },
   "clientScopes": [
 	  {
   "name": "offline_access",
