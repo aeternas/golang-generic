@@ -32,6 +32,12 @@ type Config struct {
 	HTTPClient *http.Client
 }
 
+const (
+	defaultInitialJWKSRetryTimeout = 30 * time.Second
+	defaultJWKSRetryBackoff        = time.Second
+	maxJWKSRetryBackoff            = 5 * time.Second
+)
+
 // Verifier validates RSA-signed Keycloak JWTs by fetching the realm's JWKS document.
 type Verifier struct {
 	issuer      string
@@ -118,9 +124,40 @@ func NewVerifier(ctx context.Context, cfg Config) (*Verifier, error) {
 		issuerList:  issuerList,
 	}
 
-	if err := verifier.refreshKeys(ctx); err != nil {
-		debugf("initial JWKS refresh failed: %v", err)
-		return nil, err
+	refreshCtx := ctx
+	cancel := func() {}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		refreshCtx, cancel = context.WithTimeout(ctx, defaultInitialJWKSRetryTimeout)
+	}
+	defer cancel()
+
+	backoff := defaultJWKSRetryBackoff
+	attempt := 1
+	var lastErr error
+	for {
+		if err := verifier.refreshKeys(refreshCtx); err == nil {
+			break
+		} else {
+			lastErr = err
+			debugf("initial JWKS refresh failed on attempt %d: %v", attempt, err)
+		}
+
+		attempt++
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-refreshCtx.Done():
+			timer.Stop()
+			debugf("initial JWKS refresh aborted after %d attempt(s): %v", attempt-1, refreshCtx.Err())
+			return nil, fmt.Errorf("initial JWKS refresh failed: %w", lastErr)
+		case <-timer.C:
+		}
+		timer.Stop()
+
+		backoff *= 2
+		if backoff > maxJWKSRetryBackoff {
+			backoff = maxJWKSRetryBackoff
+		}
 	}
 
 	debugf("verifier initialised for issuer %s with JWKS endpoint %s", verifier.issuer, verifier.jwksURL)
