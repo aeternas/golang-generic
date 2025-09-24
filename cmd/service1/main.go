@@ -281,9 +281,49 @@ func writeJSON(w http.ResponseWriter, payload any, statusCode int) {
 func logRequests(logger *log.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
-		logger.Printf("%s %s from %s completed in %s", r.Method, r.URL.Path, r.RemoteAddr, time.Since(start))
+		uri := r.URL.RequestURI()
+		logger.Printf("started %s %s from %s", r.Method, uri, r.RemoteAddr)
+
+		lrw := &loggingResponseWriter{ResponseWriter: w}
+		next.ServeHTTP(lrw, r)
+
+		statusCode := lrw.statusCode
+		if statusCode == 0 {
+			statusCode = http.StatusOK
+		}
+
+		logger.Printf(
+			"completed %s %s from %s with status %d %s in %s (%d bytes)",
+			r.Method,
+			uri,
+			r.RemoteAddr,
+			statusCode,
+			http.StatusText(statusCode),
+			time.Since(start),
+			lrw.bytesWritten,
+		)
 	})
+}
+
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	statusCode   int
+	bytesWritten int64
+}
+
+func (lrw *loggingResponseWriter) WriteHeader(code int) {
+	lrw.statusCode = code
+	lrw.ResponseWriter.WriteHeader(code)
+}
+
+func (lrw *loggingResponseWriter) Write(p []byte) (int, error) {
+	if lrw.statusCode == 0 {
+		lrw.statusCode = http.StatusOK
+	}
+
+	n, err := lrw.ResponseWriter.Write(p)
+	lrw.bytesWritten += int64(n)
+	return n, err
 }
 
 type s2Client struct {
