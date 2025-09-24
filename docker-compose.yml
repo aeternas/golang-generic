@@ -1,0 +1,58 @@
+version: "3.9"
+
+services:
+  keycloak:
+    build:
+      context: .
+      dockerfile: Dockerfile.keycloak
+    ports:
+      - "8080:8080"
+    networks:
+      demo:
+        aliases:
+          - keycloak
+
+  service2:
+    build:
+      context: .
+      dockerfile: Dockerfile.service2
+    depends_on:
+      - keycloak
+    environment:
+      - PORT=8081
+      - KEYCLOAK_ISSUER_URL=http://keycloak:8080/realms/demo
+      - KEYCLOAK_ISSUER_ALIASES=http://localhost:8080/realms/demo
+      - KEYCLOAK_CLIENT_ID=service-client
+    ports:
+      - "8081:8081"
+    networks:
+      demo:
+        aliases:
+          - service2
+
+  service1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - service2
+      - keycloak
+    environment:
+      - PORT=8082
+      - S2_BASE_URL=http://service2:8081
+      - S2_BASIC_USER=demo-user
+      - S2_BASIC_PASSWORD=demo-pass
+      - S2_SECURE_PATH=/secure-data
+      - KEYCLOAK_ISSUER_URL=http://keycloak:8080/realms/demo
+      - KEYCLOAK_ISSUER_ALIASES=http://localhost:8080/realms/demo
+      - KEYCLOAK_CLIENT_ID=service-client
+    ports:
+      - "8082:8082"
+    networks:
+      demo:
+        aliases:
+          - service1
+
+networks:
+  demo:
+    driver: bridge
