@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,11 +12,6 @@ import (
 	"time"
 
 	"golang-generic/internal/keycloak"
-)
-
-const (
-	basicAuthUsername = "demo-user"
-	basicAuthPassword = "demo-pass"
 )
 
 type service struct {
@@ -148,6 +144,29 @@ func (s *service) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type Cred struct {
+	Login    string
+	Password string
+}
+
+var credentials = []Cred{
+	{Login: "demo-user", Password: "demo-pass"},
+	{Login: "alice", Password: "s3cr3t"},
+	{Login: "bob", Password: "passw0rd"},
+	{Login: "carol", Password: "letmein"},
+}
+
+func checkCredentials(username, password string) bool {
+	for _, c := range credentials {
+		loginOK := subtle.ConstantTimeCompare([]byte(c.Login), []byte(username)) == 1
+		passOK := subtle.ConstantTimeCompare([]byte(c.Password), []byte(password)) == 1
+		if loginOK && passOK {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *service) handleSecureData(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -155,7 +174,8 @@ func (s *service) handleSecureData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username, password, ok := r.BasicAuth()
-	if !ok || username != basicAuthUsername || password != basicAuthPassword {
+	credsOK := checkCredentials(username, password)
+	if !ok || !credsOK {
 		w.Header().Set("WWW-Authenticate", "Basic realm=\"service2\"")
 		http.Error(w, "unauthorised", http.StatusUnauthorized)
 		return
