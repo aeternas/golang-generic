@@ -17,6 +17,8 @@ Both services are written in Go and are ready to be built into separate containe
 | `GET /healthz` | Returns `204 No Content` for health checking. |
 | `GET /s2/secure-data` | Invokes the secure endpoint on S2 using the configured Basic Auth credentials and returns the upstream response alongside S1 metadata. |
 | `GET /keycloak-greeting` | Requires a Keycloak Bearer token and returns a greeting payload containing token details. |
+| `GET /keycloak/login` | Initiates the Keycloak Authorization Code flow (uses PKCE) and redirects the caller to Keycloak. |
+| `GET /keycloak/callback` | Handles the OAuth callback, exchanges the code for tokens, and returns the received payload plus decoded claims. |
 
 #### Configuration
 
@@ -34,6 +36,8 @@ Service1 is configured through environment variables:
 | `KEYCLOAK_CLIENT_ID` | _(required for `/keycloak-greeting`)_ | Client ID that must appear in the token audience claim. |
 | `KEYCLOAK_JWKS_URL` | `${KEYCLOAK_ISSUER_URL}/protocol/openid-connect/certs` | Optional override for the JWKS endpoint. |
 | `KEYCLOAK_ISSUER_ALIASES` | _(optional)_ | Comma-separated list of additional issuer URLs accepted during token validation. |
+| `KEYCLOAK_REDIRECT_URL` | _(required for `/keycloak/login`)_ | Redirect URI registered for the client. Must point to `http(s)://<host>/keycloak/callback`. |
+| `KEYCLOAK_SCOPES` | `openid,profile,email` | Optional list of scopes requested during the Authorization Code flow. Separate with commas or spaces. |
 
 Run S1 locally:
 
@@ -46,6 +50,12 @@ go run ./cmd/service1
 If the Keycloak environment variables are supplied, Service1 exposes `GET /keycloak-greeting`. The handler validates the Bearer
 token, then returns a JSON document containing the subject, preferred username, token lifetime and audience. Requests without a
 valid token receive `401 Unauthorized`.
+
+When the redirect configuration variables are provided, Service1 can also orchestrate the Keycloak Authorization Code flow.
+Visiting `/keycloak/login` generates a PKCE code challenge, stores the verifier on the server, and redirects the user to the
+Keycloak login form. After a successful login Keycloak invokes `/keycloak/callback`, where Service1 exchanges the code for tokens
+and (if the verifier is configured) validates the resulting access token before returning the raw token response alongside the
+decoded claims.
 
 For example, after obtaining an access token (see the [Keycloak realm container](#keycloak-realm-container) section below):
 
@@ -60,7 +70,9 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8082/keycloak-greeting
 | `GET /` | None | Returns status information for S2. |
 | `GET /healthz` | None | Returns `204 No Content`. |
 | `GET /secure-data` | HTTP Basic (`demo-user` / `demo-pass`) | Returns a JSON payload with sample protected data. |
-| `GET /keycloak-data` | Bearer token (Keycloak) | Validates a Keycloak JWT and echoes selected claims.
+| `GET /keycloak-data` | Bearer token (Keycloak) | Validates a Keycloak JWT and echoes selected claims. |
+| `GET /keycloak/login` | None | Initiates the Authorization Code flow and redirects the caller to Keycloak with PKCE parameters. |
+| `GET /keycloak/callback` | None | Handles the Keycloak OAuth callback, swaps the code for tokens, and returns them with decoded access token claims. |
 
 #### Basic authentication
 
@@ -79,6 +91,8 @@ S2 validates RSA-signed JWTs issued by Keycloak. Provide the following environme
 | `KEYCLOAK_CLIENT_ID` | _(required)_ | Client ID configured in that realm. The token's audience must include this value. |
 | `KEYCLOAK_JWKS_URL` | `${KEYCLOAK_ISSUER_URL}/protocol/openid-connect/certs` | Optional override for the JWKS endpoint that exposes the signing keys. |
 | `KEYCLOAK_ISSUER_ALIASES` | _(optional)_ | Comma-separated list of additional issuer URLs accepted during token validation. |
+| `KEYCLOAK_REDIRECT_URL` | _(required for `/keycloak/login`)_ | Redirect URI registered for the client (e.g. `http://localhost:8081/keycloak/callback`). |
+| `KEYCLOAK_SCOPES` | `openid,profile,email` | Optional list of scopes requested when redirecting to Keycloak. |
 
 At startup the service downloads the JWKS set once and caches the RSA keys. Tokens are validated by checking:
 
@@ -88,6 +102,8 @@ At startup the service downloads the JWKS set once and caches the RSA keys. Toke
 - the token has not expired.
 
 The handler returns a JSON payload containing basic details such as the subject, audience, issuer, preferred username and token lifetime.
+
+With the redirect variables configured, Service2 also exposes `/keycloak/login` and `/keycloak/callback` to perform the Authorization Code flow. The login endpoint issues a PKCE challenge and redirects to Keycloak, while the callback swaps the code for tokens and verifies the resulting access token (when the verifier is enabled) before returning the raw response and decoded claims.
 
 > When using the bundled Keycloak container, set `KEYCLOAK_ISSUER_URL=http://localhost:8080/realms/demo` and `KEYCLOAK_CLIENT_ID=service-client`.
 
