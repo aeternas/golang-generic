@@ -1,14 +1,18 @@
 package main
 
 import (
-	"crypto/subtle"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"golang-generic/internal/keycloak"
@@ -17,6 +21,8 @@ import (
 type service struct {
 	logger        *log.Logger
 	tokenVerifier *keycloak.Verifier
+	oauthClient   *keycloak.OAuthClient
+	authStates    *stateStore
 }
 
 type keycloakConfig struct {
@@ -24,6 +30,8 @@ type keycloakConfig struct {
 	ClientID      string
 	JWKSURL       string
 	IssuerAliases []string
+	RedirectURL   string
+	Scopes        []string
 }
 
 type secureDataResponse struct {
@@ -43,6 +51,27 @@ type keycloakDataResponse struct {
 	ExpiresAt         string   `json:"expires_at"`
 }
 
+type keycloakAuthResponse struct {
+	Service            string       `json:"service"`
+	Message            string       `json:"message"`
+	AccessToken        string       `json:"access_token"`
+	IDToken            string       `json:"id_token,omitempty"`
+	RefreshToken       string       `json:"refresh_token,omitempty"`
+	TokenType          string       `json:"token_type,omitempty"`
+	Scope              string       `json:"scope,omitempty"`
+	ExpiresIn          int          `json:"expires_in,omitempty"`
+	AccessTokenDetails *tokenClaims `json:"access_token_claims,omitempty"`
+}
+
+type tokenClaims struct {
+	Subject           string   `json:"subject"`
+	PreferredUsername string   `json:"preferred_username,omitempty"`
+	Audience          []string `json:"audience"`
+	Issuer            string   `json:"issuer"`
+	IssuedAt          string   `json:"issued_at,omitempty"`
+	ExpiresAt         string   `json:"expires_at,omitempty"`
+}
+
 func main() {
 	logger := log.New(os.Stdout, "[service2] ", log.LstdFlags)
 	cfg := loadKeycloakConfig()
@@ -54,13 +83,35 @@ func main() {
 		logger.Printf("keycloak verifier initialised for issuer %s", cfg.IssuerURL)
 	}
 
-	srv := &service{logger: logger, tokenVerifier: verifier}
+	var oauthClient *keycloak.OAuthClient
+	var authStates *stateStore
+	if cfg.IssuerURL != "" && cfg.ClientID != "" && cfg.RedirectURL != "" {
+		oauthClient, err = keycloak.NewOAuthClient(keycloak.OAuthConfig{
+			IssuerURL:   cfg.IssuerURL,
+			ClientID:    cfg.ClientID,
+			RedirectURL: cfg.RedirectURL,
+			Scopes:      cfg.Scopes,
+			HTTPClient:  &http.Client{Timeout: 5 * time.Second},
+		})
+		if err != nil {
+			logger.Printf("keycloak oauth disabled: %v", err)
+		} else {
+			authStates = newStateStore(authStateTTL)
+			logger.Printf("keycloak oauth initialised; redirect URI %s", cfg.RedirectURL)
+		}
+	} else {
+		logger.Printf("keycloak oauth configuration missing; /keycloak/login disabled")
+	}
+
+	srv := &service{logger: logger, tokenVerifier: verifier, oauthClient: oauthClient, authStates: authStates}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", srv.handleIndex)
 	mux.HandleFunc("/healthz", srv.handleHealthz)
 	mux.HandleFunc("/secure-data", srv.handleSecureData)
 	mux.HandleFunc("/keycloak-data", srv.handleKeycloakData)
+	mux.HandleFunc("/keycloak/login", srv.handleKeycloakLogin)
+	mux.HandleFunc("/keycloak/callback", srv.handleKeycloakCallback)
 
 	port := strings.TrimSpace(os.Getenv("PORT"))
 	if port == "" {
@@ -81,11 +132,18 @@ func loadKeycloakConfig() keycloakConfig {
 		jwksURL = strings.TrimSuffix(issuer, "/") + "/protocol/openid-connect/certs"
 	}
 
+	scopes := parseScopeList(os.Getenv("KEYCLOAK_SCOPES"))
+	if len(scopes) == 0 {
+		scopes = []string{"openid", "profile", "email"}
+	}
+
 	return keycloakConfig{
 		IssuerURL:     issuer,
 		ClientID:      strings.TrimSpace(os.Getenv("KEYCLOAK_CLIENT_ID")),
 		JWKSURL:       jwksURL,
 		IssuerAliases: parseEnvList(os.Getenv("KEYCLOAK_ISSUER_ALIASES")),
+		RedirectURL:   strings.TrimSpace(os.Getenv("KEYCLOAK_REDIRECT_URL")),
+		Scopes:        scopes,
 	}
 }
 
@@ -107,6 +165,36 @@ func parseEnvList(raw string) []string {
 		return nil
 	}
 	return values
+}
+
+func parseScopeList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case ',', ' ', '\t':
+			return true
+		default:
+			return false
+		}
+	})
+
+	scopes := make([]string, 0, len(fields))
+	for _, scope := range fields {
+		trimmed := strings.TrimSpace(scope)
+		if trimmed != "" {
+			scopes = append(scopes, trimmed)
+		}
+	}
+
+	if len(scopes) == 0 {
+		return nil
+	}
+
+	return scopes
 }
 
 func buildKeycloakVerifier(ctx context.Context, cfg keycloakConfig) (*keycloak.Verifier, error) {
@@ -248,6 +336,105 @@ func (s *service) handleKeycloakData(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp, http.StatusOK)
 }
 
+func (s *service) handleKeycloakLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.oauthClient == nil || s.authStates == nil {
+		http.Error(w, "keycloak oauth not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	state, err := generateState()
+	if err != nil {
+		s.logger.Printf("failed to generate oauth state: %v", err)
+		http.Error(w, "failed to initiate login", http.StatusInternalServerError)
+		return
+	}
+
+	codeVerifier, err := generateCodeVerifier()
+	if err != nil {
+		s.logger.Printf("failed to generate code verifier: %v", err)
+		http.Error(w, "failed to initiate login", http.StatusInternalServerError)
+		return
+	}
+
+	codeChallenge := codeChallengeFromVerifier(codeVerifier)
+
+	authURL, err := s.oauthClient.AuthCodeURL(state, codeChallenge)
+	if err != nil {
+		s.logger.Printf("failed to build auth URL: %v", err)
+		http.Error(w, "failed to initiate login", http.StatusInternalServerError)
+		return
+	}
+
+	s.authStates.store(state, codeVerifier)
+	s.logger.Printf("redirecting browser to Keycloak auth endpoint")
+	http.Redirect(w, r, authURL, http.StatusFound)
+}
+
+func (s *service) handleKeycloakCallback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.oauthClient == nil || s.authStates == nil {
+		http.Error(w, "keycloak oauth not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	state := strings.TrimSpace(r.URL.Query().Get("state"))
+	code := strings.TrimSpace(r.URL.Query().Get("code"))
+	if state == "" || code == "" {
+		http.Error(w, "state and code are required", http.StatusBadRequest)
+		return
+	}
+
+	codeVerifier, ok := s.authStates.consume(state)
+	if !ok {
+		http.Error(w, "invalid or expired state", http.StatusBadRequest)
+		return
+	}
+
+	tokenResp, err := s.oauthClient.Exchange(r.Context(), code, codeVerifier)
+	if err != nil {
+		s.logger.Printf("token exchange failed: %v", err)
+		http.Error(w, "failed to exchange code", http.StatusBadGateway)
+		return
+	}
+
+	response := keycloakAuthResponse{
+		Service:      "service2",
+		Message:      "authorization code exchanged successfully",
+		AccessToken:  tokenResp.AccessToken,
+		IDToken:      tokenResp.IDToken,
+		RefreshToken: tokenResp.RefreshToken,
+		TokenType:    tokenResp.TokenType,
+		Scope:        tokenResp.Scope,
+		ExpiresIn:    tokenResp.ExpiresIn,
+	}
+
+	if s.tokenVerifier != nil && tokenResp.AccessToken != "" {
+		if claims, err := s.tokenVerifier.VerifyToken(r.Context(), tokenResp.AccessToken); err != nil {
+			s.logger.Printf("access token verification failed: %v", err)
+		} else {
+			response.AccessTokenDetails = &tokenClaims{
+				Subject:           claims.Subject,
+				PreferredUsername: claims.PreferredUsername,
+				Audience:          []string(claims.Audience),
+				Issuer:            claims.Issuer,
+				IssuedAt:          formatUnixTime(claims.IssuedAt),
+				ExpiresAt:         formatUnixTime(claims.Expiry),
+			}
+		}
+	}
+
+	writeJSON(w, response, http.StatusOK)
+}
+
 func writeJSON(w http.ResponseWriter, payload any, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -302,4 +489,82 @@ func (lrw *loggingResponseWriter) Write(p []byte) (int, error) {
 	n, err := lrw.ResponseWriter.Write(p)
 	lrw.bytesWritten += int64(n)
 	return n, err
+}
+
+const authStateTTL = 5 * time.Minute
+
+type stateStore struct {
+	mu      sync.Mutex
+	ttl     time.Duration
+	entries map[string]stateEntry
+}
+
+type stateEntry struct {
+	codeVerifier string
+	expiresAt    time.Time
+}
+
+func newStateStore(ttl time.Duration) *stateStore {
+	if ttl <= 0 {
+		ttl = authStateTTL
+	}
+	return &stateStore{
+		ttl:     ttl,
+		entries: make(map[string]stateEntry),
+	}
+}
+
+func (s *stateStore) store(state, codeVerifier string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.entries[state] = stateEntry{
+		codeVerifier: codeVerifier,
+		expiresAt:    time.Now().Add(s.ttl),
+	}
+}
+
+func (s *stateStore) consume(state string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entry, ok := s.entries[state]
+	if !ok {
+		return "", false
+	}
+	delete(s.entries, state)
+
+	if time.Now().After(entry.expiresAt) {
+		return "", false
+	}
+
+	return entry.codeVerifier, true
+}
+
+func generateCodeVerifier() (string, error) {
+	return randomString(32)
+}
+
+func generateState() (string, error) {
+	return randomString(24)
+}
+
+func randomString(bytes int) (string, error) {
+	buf := make([]byte, bytes)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("failed to read random bytes: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+func codeChallengeFromVerifier(verifier string) string {
+	sum := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+func formatUnixTime(ts int64) string {
+	if ts == 0 {
+		return ""
+	}
+	return time.Unix(ts, 0).UTC().Format(time.RFC3339)
 }
