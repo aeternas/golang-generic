@@ -14,18 +14,17 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.SubjectCredentialManager;
 import org.keycloak.models.UserModel;
 import org.keycloak.storage.StorageId;
-import org.keycloak.storage.adapter.AbstractUserAdapter;
+import org.keycloak.storage.adapter.AbstractUserAdapterFederatedStorage;
 
 /**
  * Minimal user adapter that exposes Service2 users to Keycloak.
  */
-class S2UserAdapter extends AbstractUserAdapter.Streams {
+class S2UserAdapter extends AbstractUserAdapterFederatedStorage.Streams {
 
     private final String id;
     private final String username;
     private final S2UserStorageProvider provider;
     private final SubjectCredentialManager credentialManager;
-    private final Map<String, List<String>> attributes = new HashMap<>();
 
     S2UserAdapter(KeycloakSession session, RealmModel realm, ComponentModel model, S2UserStorageProvider provider, String username) {
         super(session, realm, model);
@@ -33,10 +32,7 @@ class S2UserAdapter extends AbstractUserAdapter.Streams {
         this.provider = provider;
         this.id = StorageId.keycloakId(model, username);
         this.credentialManager = new S2SubjectCredentialManager();
-        attributes.put(UserModel.USERNAME, Collections.singletonList(username));
-        attributes.put(UserModel.EMAIL, Collections.singletonList(username + "@service2.local"));
-        attributes.put(UserModel.FIRST_NAME, Collections.singletonList("Service2"));
-        attributes.put(UserModel.LAST_NAME, Collections.singletonList("User"));
+        setFederationLink(model.getId());
     }
 
     @Override
@@ -61,7 +57,7 @@ class S2UserAdapter extends AbstractUserAdapter.Streams {
 
     @Override
     public String getEmail() {
-        return attributes.getOrDefault(UserModel.EMAIL, List.of()).stream().findFirst().orElse(null);
+        return username + "@service2.local";
     }
 
     @Override
@@ -71,7 +67,7 @@ class S2UserAdapter extends AbstractUserAdapter.Streams {
 
     @Override
     public String getFirstName() {
-        return attributes.getOrDefault(UserModel.FIRST_NAME, List.of()).stream().findFirst().orElse(null);
+        return "Service2";
     }
 
     @Override
@@ -81,7 +77,7 @@ class S2UserAdapter extends AbstractUserAdapter.Streams {
 
     @Override
     public String getLastName() {
-        return attributes.getOrDefault(UserModel.LAST_NAME, List.of()).stream().findFirst().orElse(null);
+        return "User";
     }
 
     @Override
@@ -90,13 +86,23 @@ class S2UserAdapter extends AbstractUserAdapter.Streams {
     }
 
     @Override
+    public boolean isEnabled() {
+        return true;
+    }
+
+    @Override
     public Map<String, List<String>> getAttributes() {
+        Map<String, List<String>> attributes = new HashMap<>();
+        attributes.put(UserModel.USERNAME, List.of(getUsername()));
+        attributes.put(UserModel.EMAIL, List.of(getEmail()));
+        attributes.put(UserModel.FIRST_NAME, List.of(getFirstName()));
+        attributes.put(UserModel.LAST_NAME, List.of(getLastName()));
         return Collections.unmodifiableMap(attributes);
     }
 
     @Override
     public Stream<String> getAttributeStream(String name) {
-        return attributes.getOrDefault(name, List.of()).stream();
+        return getAttributes().getOrDefault(name, List.of()).stream();
     }
 
     @Override
