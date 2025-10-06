@@ -1,7 +1,6 @@
 package com.example.keycloak.s2;
 
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -14,18 +13,17 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.SubjectCredentialManager;
 import org.keycloak.models.UserModel;
 import org.keycloak.storage.StorageId;
-import org.keycloak.storage.adapter.AbstractUserAdapter;
+import org.keycloak.storage.adapter.AbstractUserAdapterFederatedStorage;
 
 /**
  * Minimal user adapter that exposes Service2 users to Keycloak.
  */
-class S2UserAdapter extends AbstractUserAdapter.Streams {
+class S2UserAdapter extends AbstractUserAdapterFederatedStorage.Streams {
 
     private final String id;
     private final String username;
     private final S2UserStorageProvider provider;
     private final SubjectCredentialManager credentialManager;
-    private final Map<String, List<String>> attributes = new HashMap<>();
 
     S2UserAdapter(KeycloakSession session, RealmModel realm, ComponentModel model, S2UserStorageProvider provider, String username) {
         super(session, realm, model);
@@ -33,10 +31,11 @@ class S2UserAdapter extends AbstractUserAdapter.Streams {
         this.provider = provider;
         this.id = StorageId.keycloakId(model, username);
         this.credentialManager = new S2SubjectCredentialManager();
-        attributes.put(UserModel.USERNAME, Collections.singletonList(username));
-        attributes.put(UserModel.EMAIL, Collections.singletonList(username + "@service2.local"));
-        attributes.put(UserModel.FIRST_NAME, Collections.singletonList("Service2"));
-        attributes.put(UserModel.LAST_NAME, Collections.singletonList("User"));
+        storeReadOnlyAttribute(UserModel.USERNAME, username);
+        storeReadOnlyAttribute(UserModel.EMAIL, username + "@service2.local");
+        storeReadOnlyAttribute(UserModel.FIRST_NAME, "Service2");
+        storeReadOnlyAttribute(UserModel.LAST_NAME, "User");
+        setEnabled(true);
     }
 
     @Override
@@ -61,7 +60,7 @@ class S2UserAdapter extends AbstractUserAdapter.Streams {
 
     @Override
     public String getEmail() {
-        return attributes.getOrDefault(UserModel.EMAIL, List.of()).stream().findFirst().orElse(null);
+        return getSingleAttribute(UserModel.EMAIL);
     }
 
     @Override
@@ -71,7 +70,7 @@ class S2UserAdapter extends AbstractUserAdapter.Streams {
 
     @Override
     public String getFirstName() {
-        return attributes.getOrDefault(UserModel.FIRST_NAME, List.of()).stream().findFirst().orElse(null);
+        return getSingleAttribute(UserModel.FIRST_NAME);
     }
 
     @Override
@@ -81,7 +80,7 @@ class S2UserAdapter extends AbstractUserAdapter.Streams {
 
     @Override
     public String getLastName() {
-        return attributes.getOrDefault(UserModel.LAST_NAME, List.of()).stream().findFirst().orElse(null);
+        return getSingleAttribute(UserModel.LAST_NAME);
     }
 
     @Override
@@ -91,12 +90,14 @@ class S2UserAdapter extends AbstractUserAdapter.Streams {
 
     @Override
     public Map<String, List<String>> getAttributes() {
-        return Collections.unmodifiableMap(attributes);
+        return Collections.unmodifiableMap(getFederatedStorage().getAttributes(realm, getId()));
     }
 
     @Override
     public Stream<String> getAttributeStream(String name) {
-        return attributes.getOrDefault(name, List.of()).stream();
+        return getFederatedStorage().getAttributes(realm, getId())
+                .getOrDefault(name, List.of())
+                .stream();
     }
 
     @Override
@@ -112,6 +113,14 @@ class S2UserAdapter extends AbstractUserAdapter.Streams {
     @Override
     public void removeAttribute(String name) {
         throw new UnsupportedOperationException("Read only user");
+    }
+
+    private void storeReadOnlyAttribute(String name, String value) {
+        getFederatedStorage().setSingleAttribute(realm, id, name, value);
+    }
+
+    private String getSingleAttribute(String name) {
+        return getAttributeStream(name).findFirst().orElse(null);
     }
 
     private class S2SubjectCredentialManager implements SubjectCredentialManager {
