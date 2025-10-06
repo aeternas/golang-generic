@@ -15,6 +15,7 @@ import org.keycloak.component.ComponentModel;
 import org.keycloak.credential.CredentialInput;
 import org.keycloak.credential.CredentialInputValidator;
 import org.keycloak.models.KeycloakSession;
+import org.keycloak.models.ModelDuplicateException;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.storage.StorageId;
@@ -28,6 +29,9 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
 
     private static final Logger LOGGER = Logger.getLogger(S2UserStorageProvider.class);
     private static final String PASSWORD_CREDENTIAL_TYPE = "password";
+    static final String DEFAULT_FIRST_NAME = "Service2";
+    static final String DEFAULT_LAST_NAME = "User";
+    private static final String DEFAULT_EMAIL_DOMAIN = "@service2.local";
 
     private final KeycloakSession session;
     private final ComponentModel model;
@@ -101,7 +105,11 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
         if (password == null) {
             return false;
         }
-        return validateAgainstService(username, password);
+        boolean valid = validateAgainstService(username, password);
+        if (valid) {
+            importUserIfNeeded(realm, username);
+        }
+        return valid;
     }
 
     private UserModel createAdapter(RealmModel realm, String username) {
@@ -137,6 +145,24 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
             LOGGER.warnf(e, "Request interrupted while validating %s", username);
             return false;
         }
+    }
+
+    private void importUserIfNeeded(RealmModel realm, String username) {
+        LOGGER.debugf("Importing user %s into realm %s if necessary", username, realm.getName());
+        try {
+            UserModel user = session.users().addUser(realm, username);
+            user.setEnabled(true);
+            user.setEmail(defaultEmailFor(username));
+            user.setFirstName(DEFAULT_FIRST_NAME);
+            user.setLastName(DEFAULT_LAST_NAME);
+            user.setFederationLink(model.getId());
+        } catch (ModelDuplicateException duplicate) {
+            LOGGER.debugf("User %s already exists locally, skipping import", username);
+        }
+    }
+
+    static String defaultEmailFor(String username) {
+        return username + DEFAULT_EMAIL_DOMAIN;
     }
 
     private static String buildBasicAuth(String username, String password) {

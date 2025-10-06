@@ -34,9 +34,9 @@ class S2UserAdapter extends AbstractUserAdapter.Streams {
         this.id = StorageId.keycloakId(model, username);
         this.credentialManager = new S2SubjectCredentialManager();
         attributes.put(UserModel.USERNAME, Collections.singletonList(username));
-        attributes.put(UserModel.EMAIL, Collections.singletonList(username + "@service2.local"));
-        attributes.put(UserModel.FIRST_NAME, Collections.singletonList("Service2"));
-        attributes.put(UserModel.LAST_NAME, Collections.singletonList("User"));
+        attributes.put(UserModel.EMAIL, Collections.singletonList(S2UserStorageProvider.defaultEmailFor(username)));
+        attributes.put(UserModel.FIRST_NAME, Collections.singletonList(S2UserStorageProvider.DEFAULT_FIRST_NAME));
+        attributes.put(UserModel.LAST_NAME, Collections.singletonList(S2UserStorageProvider.DEFAULT_LAST_NAME));
     }
 
     @Override
