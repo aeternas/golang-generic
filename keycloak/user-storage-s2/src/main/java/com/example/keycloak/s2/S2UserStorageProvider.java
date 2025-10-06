@@ -101,7 +101,11 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
         if (password == null) {
             return false;
         }
-        return validateAgainstService(username, password);
+        boolean valid = validateAgainstService(username, password);
+        if (valid) {
+            ensureUserImported(realm, username);
+        }
+        return valid;
     }
 
     private UserModel createAdapter(RealmModel realm, String username) {
@@ -143,5 +147,19 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
         String token = username + ":" + password;
         String encoded = Base64.getEncoder().encodeToString(token.getBytes(StandardCharsets.UTF_8));
         return "Basic " + encoded;
+    }
+
+    private void ensureUserImported(RealmModel realm, String username) {
+        UserModel existing = session.userLocalStorage().getUserByUsername(realm, username);
+        if (existing != null) {
+            return;
+        }
+
+        UserModel imported = session.userLocalStorage().addUser(realm, username);
+        imported.setEnabled(true);
+        imported.setEmail(username + "@service2.local");
+        imported.setFirstName("Service2");
+        imported.setLastName("User");
+        imported.setFederationLink(model.getId());
     }
 }
