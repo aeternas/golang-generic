@@ -106,6 +106,7 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
 
     private UserModel createAdapter(RealmModel realm, String username) {
         LOGGER.debugf("Creating adapter for username %s", username);
+        ensureLocalUserExists(realm, username);
         return new S2UserAdapter(session, realm, model, this, username);
     }
 
@@ -143,5 +144,23 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
         String token = username + ":" + password;
         String encoded = Base64.getEncoder().encodeToString(token.getBytes(StandardCharsets.UTF_8));
         return "Basic " + encoded;
+    }
+
+    private void ensureLocalUserExists(RealmModel realm, String username) {
+        UserModel existing = session.userLocalStorage().getUserByUsername(realm, username);
+        if (existing != null) {
+            if (!model.getId().equals(existing.getFederationLink())) {
+                existing.setFederationLink(model.getId());
+            }
+            return;
+        }
+
+        LOGGER.debugf("Creating local placeholder for Service2 user %s", username);
+        UserModel created = session.userLocalStorage().addUser(realm, username);
+        created.setEnabled(true);
+        created.setEmail(username + "@service2.local");
+        created.setFirstName("Service2");
+        created.setLastName("User");
+        created.setFederationLink(model.getId());
     }
 }
