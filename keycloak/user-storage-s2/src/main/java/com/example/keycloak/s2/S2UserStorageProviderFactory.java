@@ -19,32 +19,32 @@ public class S2UserStorageProviderFactory implements UserStorageProviderFactory<
 
     public static final String PROVIDER_ID = "s2-user-storage";
 
-    static final String CONFIG_BASE_URL = "s2BaseUrl";
-    static final String CONFIG_ENDPOINT = "s2Endpoint";
-    static final String CONFIG_TIMEOUT = "s2TimeoutMillis";
+    static final String CONFIG_BASE_URL = "jiraBaseUrl";
+    static final String CONFIG_ENDPOINT = "jiraAuthEndpoint";
+    static final String CONFIG_TIMEOUT = "jiraTimeoutMillis";
 
     private static final Logger LOGGER = Logger.getLogger(S2UserStorageProviderFactory.class);
 
     private static final ProviderConfigProperty BASE_URL = new ProviderConfigProperty(
             CONFIG_BASE_URL,
-            "Service base URL",
-            "Base URL for Service2. The provider calls its Basic Auth endpoint to validate credentials.",
+            "Jira base URL",
+            "Base URL for the standalone Jira instance. The provider calls the authentication endpoint to validate credentials.",
             ProviderConfigProperty.STRING_TYPE,
-            "http://service2:8081"
+            "http://jira:8080"
     );
 
     private static final ProviderConfigProperty ENDPOINT = new ProviderConfigProperty(
             CONFIG_ENDPOINT,
-            "Secure endpoint path",
-            "Relative path that requires HTTP Basic authentication on Service2.",
+            "Authentication endpoint path",
+            "Relative path of the Jira authentication endpoint used to validate credentials.",
             ProviderConfigProperty.STRING_TYPE,
-            "/secure-data"
+            "/rest/auth/1/session"
     );
 
     private static final ProviderConfigProperty TIMEOUT = new ProviderConfigProperty(
             CONFIG_TIMEOUT,
             "Request timeout (ms)",
-            "Timeout in milliseconds when contacting Service2.",
+            "Timeout in milliseconds when contacting Jira.",
             ProviderConfigProperty.STRING_TYPE,
             "2000"
     );
@@ -58,7 +58,7 @@ public class S2UserStorageProviderFactory implements UserStorageProviderFactory<
         URI targetEndpoint = resolveEndpoint(baseUrl, endpoint);
         Duration timeout = parseTimeout(timeoutRaw);
 
-        LOGGER.debugf("Creating S2 user storage provider with endpoint %s and timeout %s", targetEndpoint, timeout);
+        LOGGER.debugf("Creating Jira user storage provider with endpoint %s and timeout %s", targetEndpoint, timeout);
         return new S2UserStorageProvider(session, model, targetEndpoint, timeout);
     }
 
@@ -93,7 +93,7 @@ public class S2UserStorageProviderFactory implements UserStorageProviderFactory<
             URI baseUri = new URI(effectiveBase);
             return baseUri.resolve(normalisedEndpoint);
         } catch (URISyntaxException e) {
-            throw new IllegalArgumentException("Invalid Service2 URL configuration", e);
+            throw new IllegalArgumentException("Invalid Jira URL configuration", e);
         }
     }
 
