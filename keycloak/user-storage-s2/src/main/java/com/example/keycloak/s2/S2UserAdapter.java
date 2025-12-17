@@ -17,7 +17,7 @@ import org.keycloak.storage.StorageId;
 import org.keycloak.storage.adapter.AbstractUserAdapter;
 
 /**
- * Minimal user adapter that exposes Service2 users to Keycloak.
+ * Minimal user adapter that exposes Jira users to Keycloak.
  */
 class S2UserAdapter extends AbstractUserAdapter.Streams {
 

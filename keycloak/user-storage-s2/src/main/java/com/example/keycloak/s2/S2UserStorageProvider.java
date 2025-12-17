@@ -7,7 +7,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.Objects;
 
 import org.jboss.logging.Logger;
@@ -23,26 +22,26 @@ import org.keycloak.storage.UserStorageProvider;
 import org.keycloak.storage.user.UserLookupProvider;
 
 /**
- * Delegates password validation to Service2 by issuing a Basic Auth request against its secure endpoint.
+ * Delegates password validation to a standalone Jira installation by invoking its authentication endpoint.
  */
 public class S2UserStorageProvider implements UserStorageProvider, UserLookupProvider, CredentialInputValidator {
 
     private static final Logger LOGGER = Logger.getLogger(S2UserStorageProvider.class);
     private static final String PASSWORD_CREDENTIAL_TYPE = "password";
-    static final String DEFAULT_FIRST_NAME = "Service2";
+    static final String DEFAULT_FIRST_NAME = "Jira";
     static final String DEFAULT_LAST_NAME = "User";
-    private static final String DEFAULT_EMAIL_DOMAIN = "@service2.local";
+    private static final String DEFAULT_EMAIL_DOMAIN = "@jira.local";
 
     private final KeycloakSession session;
     private final ComponentModel model;
     private final HttpClient httpClient;
-    private final URI secureEndpoint;
+    private final URI authEndpoint;
     private final Duration timeout;
 
-    public S2UserStorageProvider(KeycloakSession session, ComponentModel model, URI secureEndpoint, Duration timeout) {
+    public S2UserStorageProvider(KeycloakSession session, ComponentModel model, URI authEndpoint, Duration timeout) {
         this.session = session;
         this.model = model;
-        this.secureEndpoint = secureEndpoint;
+        this.authEndpoint = authEndpoint;
         this.timeout = timeout;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(timeout)
@@ -105,7 +104,7 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
         if (password == null) {
             return false;
         }
-        boolean valid = validateAgainstService(username, password);
+        boolean valid = validateAgainstJira(username, password);
         if (valid) {
             importUserIfNeeded(realm, username);
         }
@@ -117,28 +116,30 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
         return new S2UserAdapter(session, realm, model, this, username);
     }
 
-    private boolean validateAgainstService(String username, String password) {
-        LOGGER.debugf("Validating credentials for %s using Service2", username);
-        HttpRequest request = HttpRequest.newBuilder(secureEndpoint)
+    private boolean validateAgainstJira(String username, String password) {
+        LOGGER.debugf("Validating credentials for %s using Jira", username);
+
+        String payload = toAuthPayload(username, password);
+        HttpRequest request = HttpRequest.newBuilder(authEndpoint)
                 .timeout(timeout)
-                .header("Authorization", buildBasicAuth(username, password))
-                .GET()
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
                 .build();
         try {
             HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
             int status = response.statusCode();
             if (status == 200) {
-                LOGGER.debugf("Service2 accepted credentials for %s", username);
+                LOGGER.debugf("Jira accepted credentials for %s", username);
                 return true;
             }
             if (status == 401) {
-                LOGGER.debugf("Service2 rejected credentials for %s", username);
+                LOGGER.debugf("Jira rejected credentials for %s", username);
                 return false;
             }
-            LOGGER.warnf("Unexpected status %d while validating %s via Service2", status, username);
+            LOGGER.warnf("Unexpected status %d while validating %s via Jira", status, username);
             return false;
         } catch (IOException e) {
-            LOGGER.errorf(e, "IO error while validating %s against Service2", username);
+            LOGGER.errorf(e, "IO error while validating %s against Jira", username);
             return false;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -165,9 +166,17 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
         return username + DEFAULT_EMAIL_DOMAIN;
     }
 
-    private static String buildBasicAuth(String username, String password) {
-        String token = username + ":" + password;
-        String encoded = Base64.getEncoder().encodeToString(token.getBytes(StandardCharsets.UTF_8));
-        return "Basic " + encoded;
+    private static String toAuthPayload(String username, String password) {
+        String escapedUser = escapeJson(username);
+        String escapedPassword = escapeJson(password);
+        return String.format("{\"username\":\"%s\",\"password\":\"%s\"}", escapedUser, escapedPassword);
+    }
+
+    private static String escapeJson(String value) {
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r");
     }
 }
