@@ -6,8 +6,16 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Objects;
+
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 import org.jboss.logging.Logger;
 import org.keycloak.component.ComponentModel;
@@ -43,9 +51,7 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
         this.model = model;
         this.authEndpoint = authEndpoint;
         this.timeout = timeout;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(timeout)
-                .build();
+        this.httpClient = buildHttpClient(timeout);
     }
 
     @Override
@@ -145,6 +151,47 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
             Thread.currentThread().interrupt();
             LOGGER.warnf(e, "Request interrupted while validating %s", username);
             return false;
+        }
+    }
+
+    private static HttpClient buildHttpClient(Duration timeout) {
+        SSLContext sslContext = insecureSslContext();
+        SSLParameters sslParameters = new SSLParameters();
+        sslParameters.setEndpointIdentificationAlgorithm("");
+
+        return HttpClient.newBuilder()
+                .connectTimeout(timeout)
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .sslContext(sslContext)
+                .sslParameters(sslParameters)
+                .build();
+    }
+
+    private static SSLContext insecureSslContext() {
+        try {
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, new TrustManager[]{new InsecureTrustManager()}, new SecureRandom());
+            return sslContext;
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Unable to initialise SSL context for Jira client", e);
+        }
+    }
+
+    private static final class InsecureTrustManager implements X509TrustManager {
+
+        @Override
+        public void checkClientTrusted(X509Certificate[] chain, String authType) {
+            // Accept all client certificates
+        }
+
+        @Override
+        public void checkServerTrusted(X509Certificate[] chain, String authType) {
+            // Accept all server certificates
+        }
+
+        @Override
+        public X509Certificate[] getAcceptedIssuers() {
+            return new X509Certificate[0];
         }
     }
 
