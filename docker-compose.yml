@@ -4,6 +4,9 @@ services:
   keycloak:
     environment:
       - KC_LOG_LEVEL=INFO,com.example.keycloak.s2:DEBUG
+      - S2_JIRA_BASE_URL=http://jira:8080
+      - S2_JIRA_AUTH_ENDPOINT=/rest/auth/1/session
+      - S2_DEFAULT_EMAIL_DOMAIN=@jira.local
     build:
       context: .
       dockerfile: Dockerfile.keycloak

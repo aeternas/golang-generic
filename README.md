@@ -178,6 +178,13 @@ properties:
 | `jiraAuthEndpoint` | Relative path of the Jira authentication endpoint. | `/rest/auth/1/session` |
 | `jiraTimeoutMillis` | Timeout (in milliseconds) for validation requests. | `2000` |
 
+When running the bundled Docker Compose stack, you can override the defaults through environment variables on the Keycloak
+container:
+
+- `S2_JIRA_BASE_URL` — default value for the `jiraBaseUrl` property (used if the component field is left blank).
+- `S2_JIRA_AUTH_ENDPOINT` — default value for the `jiraAuthEndpoint` property.
+- `S2_DEFAULT_EMAIL_DOMAIN` — suffix applied to imported Jira users when their email address is created (e.g. `@jira.local`).
+
 To test the integration locally:
 
 1. Ensure Jira is reachable by Keycloak. When running Keycloak via Docker, place both containers on the same network and keep

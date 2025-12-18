@@ -25,12 +25,15 @@ public class S2UserStorageProviderFactory implements UserStorageProviderFactory<
 
     private static final Logger LOGGER = Logger.getLogger(S2UserStorageProviderFactory.class);
 
+    private static final String DEFAULT_BASE_URL = envOrDefault("S2_JIRA_BASE_URL", "http://jira:8080");
+    private static final String DEFAULT_ENDPOINT = envOrDefault("S2_JIRA_AUTH_ENDPOINT", "/rest/auth/1/session");
+
     private static final ProviderConfigProperty BASE_URL = new ProviderConfigProperty(
             CONFIG_BASE_URL,
             "Jira base URL",
             "Base URL for the standalone Jira instance. The provider calls the authentication endpoint to validate credentials.",
             ProviderConfigProperty.STRING_TYPE,
-            "http://jira:8080"
+            DEFAULT_BASE_URL
     );
 
     private static final ProviderConfigProperty ENDPOINT = new ProviderConfigProperty(
@@ -38,7 +41,7 @@ public class S2UserStorageProviderFactory implements UserStorageProviderFactory<
             "Authentication endpoint path",
             "Relative path of the Jira authentication endpoint used to validate credentials.",
             ProviderConfigProperty.STRING_TYPE,
-            "/rest/auth/1/session"
+            DEFAULT_ENDPOINT
     );
 
     private static final ProviderConfigProperty TIMEOUT = new ProviderConfigProperty(
@@ -117,5 +120,15 @@ public class S2UserStorageProviderFactory implements UserStorageProviderFactory<
     private static String defaultValue(ProviderConfigProperty property) {
         Object value = property.getDefaultValue();
         return value != null ? value.toString() : "";
+    }
+
+    private static String envOrDefault(String envKey, String defaultValue) {
+        String value = System.getenv(envKey);
+        if (value == null) {
+            return defaultValue;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? defaultValue : trimmed;
     }
 }
