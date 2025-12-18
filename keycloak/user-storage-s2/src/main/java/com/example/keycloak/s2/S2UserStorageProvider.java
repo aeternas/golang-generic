@@ -38,7 +38,8 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
     private static final String PASSWORD_CREDENTIAL_TYPE = "password";
     static final String DEFAULT_FIRST_NAME = "Jira";
     static final String DEFAULT_LAST_NAME = "User";
-    private static final String DEFAULT_EMAIL_DOMAIN = "@jira.local";
+    private static final String DEFAULT_EMAIL_DOMAIN =
+            envOrDefault("S2_DEFAULT_EMAIL_DOMAIN", "@jira.local");
 
     private final KeycloakSession session;
     private final ComponentModel model;
@@ -225,5 +226,15 @@ public class S2UserStorageProvider implements UserStorageProvider, UserLookupPro
                 .replace("\"", "\\\"")
                 .replace("\n", "\\n")
                 .replace("\r", "\\r");
+    }
+
+    private static String envOrDefault(String envKey, String defaultValue) {
+        String value = System.getenv(envKey);
+        if (value == null) {
+            return defaultValue;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? defaultValue : trimmed;
     }
 }
